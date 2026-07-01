@@ -116,6 +116,37 @@
     color: #2980b9;
   }
 
+  .scoreboard {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    background: #fef9f0;
+    border: 2px solid #e8d5b7;
+    border-radius: 10px;
+  }
+
+  .score-item {
+    flex: 1;
+    text-align: center;
+  }
+
+  .score-value {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.2;
+    font-family: "Consolas", "SF Mono", "Microsoft YaHei", monospace;
+  }
+
+  .score-value.win  { color: #27ae60; }
+  .score-value.lose { color: #c0392b; }
+  .score-value.draw { color: #b8860b; }
+
+  .score-label {
+    font-size: 12px;
+    color: #8b7355;
+    letter-spacing: 1px;
+  }
+
   @keyframes pulse {
     from { box-shadow: 0 0 4px rgba(231,76,60,0.3); }
     to   { box-shadow: 0 0 16px rgba(231,76,60,0.6); }
@@ -200,6 +231,21 @@
       <span class="dot black"></span> 你的回合
     </div>
 
+    <div class="scoreboard" id="scoreboard">
+      <div class="score-item">
+        <div class="score-value win" id="score-win">0</div>
+        <div class="score-label">🏆 胜</div>
+      </div>
+      <div class="score-item">
+        <div class="score-value lose" id="score-lose">0</div>
+        <div class="score-label">😞 负</div>
+      </div>
+      <div class="score-item">
+        <div class="score-value draw" id="score-draw">0</div>
+        <div class="score-label">🤝 平</div>
+      </div>
+    </div>
+
     <div class="btn-row">
       <button id="btn-reset">♻ 重新开始</button>
       <button id="btn-undo" disabled>↩ 悔棋</button>
@@ -238,6 +284,9 @@
   const moveLogEl = document.getElementById('move-log');
   const btnReset = document.getElementById('btn-reset');
   const btnUndo = document.getElementById('btn-undo');
+  const scoreWinEl = document.getElementById('score-win');
+  const scoreLoseEl = document.getElementById('score-lose');
+  const scoreDrawEl = document.getElementById('score-draw');
 
   // ==================== 游戏状态 ====================
   let board = [];
@@ -248,6 +297,7 @@
   let humanTurn = true;
   let aiThinking = false;
   let hoverPos = null;      // 鼠标悬停的网格坐标
+  let scores = { player: 0, ai: 0, draw: 0 };  // 计分板
 
   // ==================== 初始化 ====================
   function initBoard() {
@@ -594,6 +644,17 @@
     winner = winPlayer;
     winLine = line;
     aiThinking = false;
+
+    // 更新计分板
+    if (winPlayer === BLACK) {
+      scores.player++;
+    } else if (winPlayer === WHITE) {
+      scores.ai++;
+    } else {
+      scores.draw++;
+    }
+    updateScoreboard();
+
     drawBoard();
     updateStatus();
     updateButtons();
@@ -741,6 +802,12 @@
     moveLogEl.scrollTop = moveLogEl.scrollHeight;
   }
 
+  function updateScoreboard() {
+    scoreWinEl.textContent = scores.player;
+    scoreLoseEl.textContent = scores.ai;
+    scoreDrawEl.textContent = scores.draw;
+  }
+
   function updateButtons() {
     btnUndo.disabled = gameOver || aiThinking || moveHistory.length === 0;
   }
@@ -800,6 +867,7 @@
     updateStatus();
     updateButtons();
     updateMoveLog();
+    updateScoreboard();
   }
 
   start();
