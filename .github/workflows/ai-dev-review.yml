@@ -44,6 +44,10 @@ jobs:
 
           # Create URL-safe slug from title
           SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-50)
+          # Fallback if slug is empty (e.g. pure Chinese title)
+          if [ -z "$SLUG" ]; then
+            SLUG="issue-${ISSUE_NUMBER}"
+          fi
           BRANCH="ai/${ISSUE_NUMBER}-${SLUG}"
           git checkout -b "$BRANCH"
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
