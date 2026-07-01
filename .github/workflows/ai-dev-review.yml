@@ -129,15 +129,10 @@ jobs:
             fi
 
             # Build review prompt
-            cat > /tmp/review_prompt.md << 'RULESEOF'
-            你是一个严格的代码审查者。请按以下规则审查代码变更，输出 JSON。
-
-            RULESEOF
-
+            echo '你是一个严格的代码审查者。请按以下规则审查代码变更，输出 JSON。' > /tmp/review_prompt.md
             echo "" >> /tmp/review_prompt.md
             echo "$REVIEW_RULES" >> /tmp/review_prompt.md
             echo "" >> /tmp/review_prompt.md
-
             cat >> /tmp/review_prompt.md << DETAILSEOF
 
             关联 Issue：#${ISSUE_NUMBER} — ${ISSUE_TITLE}
@@ -201,20 +196,18 @@ jobs:
             echo "=== Fix Phase ==="
             ISSUES_TEXT=$(echo "$REVIEW" | jq -r '.issues[]? | "- [\(.severity)] \(.file): \(.description)\n  Suggestion: \(.suggestion)"' 2>/dev/null || echo "Fix review issues")
 
-            cat > /tmp/fix_prompt.md << FIXEOF
-          你是一个代码修复者。请修复以下代码审查发现的问题。
-
-          审查问题列表：
-          ${ISSUES_TEXT}
-
-          修复约束：
-          1. 只修复上述问题，不做额外改动
-          2. 保持代码风格一致
-          3. 不要引入新问题
-          4. 修复完成后提交代码：git add -A && git commit -m "fix: 修复审查问题 (第${i}轮)"
-
-          请开始修复。
-          FIXEOF
+            echo '你是一个代码修复者。请修复以下代码审查发现的问题。' > /tmp/fix_prompt.md
+            echo "" >> /tmp/fix_prompt.md
+            echo '审查问题列表：' >> /tmp/fix_prompt.md
+            echo "${ISSUES_TEXT}" >> /tmp/fix_prompt.md
+            echo "" >> /tmp/fix_prompt.md
+            echo '修复约束：' >> /tmp/fix_prompt.md
+            echo '1. 只修复上述问题，不做额外改动' >> /tmp/fix_prompt.md
+            echo '2. 保持代码风格一致' >> /tmp/fix_prompt.md
+            echo '3. 不要引入新问题' >> /tmp/fix_prompt.md
+            echo "4. 修复完成后提交代码：git add -A && git commit -m \"fix: 修复审查问题 (第${i}轮)\"" >> /tmp/fix_prompt.md
+            echo "" >> /tmp/fix_prompt.md
+            echo '请开始修复。' >> /tmp/fix_prompt.md
 
             claude -p "$(cat /tmp/fix_prompt.md)" --dangerously-skip-permissions
 
