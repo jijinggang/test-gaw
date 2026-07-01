@@ -89,11 +89,10 @@ jobs:
         run: |
           if ! git diff --quiet; then
             git add -A
-            git commit -m "feat: ${{ github.event.issue.title }}
-
-      Closes #${{ github.event.issue.number }}
-
-      Co-Authored-By: Claude <noreply@anthropic.com>"
+            git commit \
+              -m "feat: ${{ github.event.issue.title }}" \
+              -m "Closes #${{ github.event.issue.number }}" \
+              -m "Co-Authored-By: Claude <noreply@anthropic.com>"
           fi
           echo "Commits on branch:"
           git log --oneline -5
@@ -209,9 +208,9 @@ jobs:
             # Ensure fixes are committed
             if ! git diff --quiet; then
               git add -A
-              git commit -m "fix: 修复审查问题 (第${i}轮)
-
-      Co-Authored-By: Claude <noreply@anthropic.com>"
+              git commit \
+                -m "fix: 修复审查问题 (第${i}轮)" \
+                -m "Co-Authored-By: Claude <noreply@anthropic.com>"
             else
               echo "No new changes to commit after fix phase"
             fi
@@ -228,22 +227,26 @@ jobs:
 
           git push -u origin "$BRANCH"
 
+          cat > /tmp/pr_body.md << BODYEOF
+          ## 改动摘要
+
+          ${SUMMARY}
+
+          ## 关联 Issue
+
+          Closes #${ISSUE_NUMBER}
+
+          ## 审查结果
+
+          ✅ AI 自审通过
+
+          ---
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)
+          BODYEOF
+
           gh pr create \
             --title "${{ github.event.issue.title }} (Closes #${ISSUE_NUMBER})" \
-            --body "## 改动摘要
-
-      ${SUMMARY}
-
-      ## 关联 Issue
-
-      Closes #${ISSUE_NUMBER}
-
-      ## 审查结果
-
-      ✅ AI 自审通过
-
-      ---
-      🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+            --body-file /tmp/pr_body.md \
             --label "ai-generated"
 
       - name: Report failure to issue
@@ -255,22 +258,22 @@ jobs:
           SUMMARY='${{ steps.review.outputs.summary }}'
           BRANCH_NAME='${{ steps.branch.outputs.name }}'
 
-          cat > /tmp/failure_report.md << BODYEOF
-      ## AI 自审未通过
+          cat > /tmp/failure_report.md << 'BODYEOF'
+          ## AI 自审未通过
 
-      经过 3 轮自动修复后，代码审查仍未通过。需要人类开发者介入处理。
+          经过 3 轮自动修复后，代码审查仍未通过。需要人类开发者介入处理。
 
-      ### 审查摘要
+          ### 审查摘要
 
-      ${SUMMARY}
+          ${SUMMARY}
 
-      ### 分支
+          ### 分支
 
-      \`${BRANCH_NAME}\` 分支上的代码保留，可手动检查。
+          \`${BRANCH_NAME}\` 分支上的代码保留，可手动检查。
 
-      ---
-      🤖 Generated with [Claude Code](https://claude.com/claude-code)
-      BODYEOF
+          ---
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)
+          BODYEOF
 
           gh issue comment "$ISSUE_NUMBER" --body-file /tmp/failure_report.md
           gh issue edit "$ISSUE_NUMBER" --add-label "needs-human"
