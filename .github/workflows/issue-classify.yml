@@ -28,6 +28,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
@@ -52,8 +53,8 @@ jobs:
           echo "Issue 内容：" >> /tmp/classify_prompt.md
           echo "${ISSUE_BODY}" >> /tmp/classify_prompt.md
 
-          # Call Claude for classification
-          RESULT=$(claude -p "$(cat /tmp/classify_prompt.md)" --output-format json 2>&1)
+          # Call Claude for classification (pipe prompt via stdin)
+          RESULT=$(claude -p "$(cat /tmp/classify_prompt.md)" --output-format json)
           echo "Classification result: ${RESULT}"
 
           # Parse JSON result with fallbacks

@@ -53,6 +53,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -102,6 +103,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
@@ -150,7 +152,7 @@ jobs:
             DETAILSEOF
 
             # Run review
-            REVIEW=$(claude -p "$(cat /tmp/review_prompt.md)" --output-format json 2>&1) || {
+            REVIEW=$(claude -p "$(cat /tmp/review_prompt.md)" --output-format json) || {
               echo "Review command failed, treating as not passed"
               REVIEW='{"passed":false,"summary":"Review command failed","issues":[{"severity":"critical","file":"unknown","description":"Claude review command failed","suggestion":"Check CI logs"}]}'
             }
