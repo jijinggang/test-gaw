@@ -1,0 +1,276 @@
+name: AI Development & Review
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ai-dev-review
+  cancel-in-progress: false
+
+jobs:
+  dev-review:
+    if: github.event.label.name == 'feat' || github.event.label.name == 'bug'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Setup Git identity
+        run: |
+          git config user.name "AI Bot"
+          git config user.email "ai-bot@noreply.github.com"
+
+      - name: Create branch
+        id: branch
+        run: |
+          ISSUE_NUMBER='${{ github.event.issue.number }}'
+          ISSUE_TITLE='${{ github.event.issue.title }}'
+
+          # Create URL-safe slug from title
+          SLUG=$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-50)
+          BRANCH="ai/${ISSUE_NUMBER}-${SLUG}"
+          git checkout -b "$BRANCH"
+          echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: AI Development
+        id: develop
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -e
+
+          echo "=== AI Development Phase ==="
+
+          cat > /tmp/dev_prompt.md << 'PROMPTEOF'
+          你是一个代码开发者。请根据以下 issue 进行代码开发。
+
+          PROMPTEOF
+
+          cat >> /tmp/dev_prompt.md << PROMPTEOF
+
+          ## Issue #${ISSUE_NUMBER}：${ISSUE_TITLE}
+
+          ${ISSUE_BODY}
+
+          ## 开发约束
+
+          1. **保守修改**：优先保持现有单文件架构，除非必须拆分
+          2. **风格一致**：遵循项目现有代码风格和命名约定
+          3. **聚焦范围**：只做与 issue 直接相关的修改，不做无关重构
+          4. **保持兼容**：确保现有功能不受影响
+          5. **自动提交**：完成修改后，运行 `git add -A && git commit -m "feat: 描述修改内容"` 提交代码
+
+          请开始开发。
+          PROMPTEOF
+
+          claude -p "$(cat /tmp/dev_prompt.md)" --dangerously-skip-permissions
+
+      - name: Ensure changes committed
+        run: |
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "feat: ${{ github.event.issue.title }}
+
+      Closes #${{ github.event.issue.number }}
+
+      Co-Authored-By: Claude <noreply@anthropic.com>"
+          fi
+          echo "Commits on branch:"
+          git log --oneline -5
+
+      - name: AI Review & Fix Loop
+        id: review
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -e
+
+          MAX_RETRIES=3
+          REVIEW_RULES=$(cat .github/ai-workflows/review.md)
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo ""
+            echo "=============================================="
+            echo "  Review Round: ${i}/${MAX_RETRIES}"
+            echo "=============================================="
+            echo ""
+
+            # Get the diff of changes on this branch vs main
+            git fetch origin main 2>/dev/null || true
+            DIFF=$(git diff origin/main...HEAD -- . 2>/dev/null || git diff main...HEAD -- . 2>/dev/null || git diff HEAD~1..HEAD -- . 2>/dev/null || echo "")
+
+            if [ -z "$DIFF" ]; then
+              echo "Warning: Empty diff, fetching all changes"
+              DIFF=$(git diff HEAD -- .)
+            fi
+
+            # Build review prompt
+            cat > /tmp/review_prompt.md << 'RULESEOF'
+            你是一个严格的代码审查者。请按以下规则审查代码变更，输出 JSON。
+
+            RULESEOF
+
+            echo "" >> /tmp/review_prompt.md
+            echo "$REVIEW_RULES" >> /tmp/review_prompt.md
+            echo "" >> /tmp/review_prompt.md
+
+            cat >> /tmp/review_prompt.md << DETAILSEOF
+
+            关联 Issue：#${ISSUE_NUMBER} — ${ISSUE_TITLE}
+            当前审查轮次：${i}/${MAX_RETRIES}
+
+            代码 Diff：
+            \`\`\`diff
+            ${DIFF}
+            \`\`\`
+
+            请审查上述变更，输出 JSON。记住判断标准：critical ≥1 或 major ≥3 即为不通过。
+            DETAILSEOF
+
+            # Run review
+            REVIEW=$(claude -p "$(cat /tmp/review_prompt.md)" --output-format json 2>&1) || {
+              echo "Review command failed, treating as not passed"
+              REVIEW='{"passed":false,"summary":"Review command failed","issues":[{"severity":"critical","file":"unknown","description":"Claude review command failed","suggestion":"Check CI logs"}]}'
+            }
+
+            echo "Review JSON:"
+            echo "$REVIEW" | jq '.' 2>/dev/null || echo "$REVIEW"
+
+            PASSED=$(echo "$REVIEW" | jq -r '.passed // "false"')
+            SUMMARY=$(echo "$REVIEW" | jq -r '.summary // "Unable to get review summary"')
+
+            echo "passed=${PASSED}" >> "$GITHUB_OUTPUT"
+            echo "summary=${SUMMARY}" >> "$GITHUB_OUTPUT"
+
+            if [ "${PASSED}" = "true" ]; then
+              echo ""
+              echo "Review PASSED"
+              exit 0
+            fi
+
+            echo ""
+            echo "Review FAILED. Issues:"
+            echo "$REVIEW" | jq -r '.issues[]? | "  - [\(.severity)] \(.file): \(.description)"' 2>/dev/null || echo "  (unable to parse issues)"
+
+            # Check if max retries reached
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo ""
+              echo "Max retries (${MAX_RETRIES}) reached. Marking as needs-human."
+              ISSUES_JSON=$(echo "$REVIEW" | jq -c '.issues // []' 2>/dev/null || echo "[]")
+              echo "issues_json=${ISSUES_JSON}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Fix phase
+            echo ""
+            echo "=== Fix Phase ==="
+            ISSUES_TEXT=$(echo "$REVIEW" | jq -r '.issues[]? | "- [\(.severity)] \(.file): \(.description)\n  Suggestion: \(.suggestion)"' 2>/dev/null || echo "Fix review issues")
+
+            cat > /tmp/fix_prompt.md << FIXEOF
+          你是一个代码修复者。请修复以下代码审查发现的问题。
+
+          审查问题列表：
+          ${ISSUES_TEXT}
+
+          修复约束：
+          1. 只修复上述问题，不做额外改动
+          2. 保持代码风格一致
+          3. 不要引入新问题
+          4. 修复完成后提交代码：git add -A && git commit -m "fix: 修复审查问题 (第${i}轮)"
+
+          请开始修复。
+          FIXEOF
+
+            claude -p "$(cat /tmp/fix_prompt.md)" --dangerously-skip-permissions
+
+            # Ensure fixes are committed
+            if ! git diff --quiet; then
+              git add -A
+              git commit -m "fix: 修复审查问题 (第${i}轮)
+
+      Co-Authored-By: Claude <noreply@anthropic.com>"
+            else
+              echo "No new changes to commit after fix phase"
+            fi
+          done
+
+      - name: Push and Create PR
+        if: steps.review.outputs.passed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH='${{ steps.branch.outputs.name }}'
+          ISSUE_NUMBER='${{ github.event.issue.number }}'
+          SUMMARY='${{ steps.review.outputs.summary }}'
+
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "${{ github.event.issue.title }} (Closes #${ISSUE_NUMBER})" \
+            --body "## 改动摘要
+
+      ${SUMMARY}
+
+      ## 关联 Issue
+
+      Closes #${ISSUE_NUMBER}
+
+      ## 审查结果
+
+      ✅ AI 自审通过
+
+      ---
+      🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+            --label "ai-generated"
+
+      - name: Report failure to issue
+        if: steps.review.outputs.passed == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUMBER='${{ github.event.issue.number }}'
+          SUMMARY='${{ steps.review.outputs.summary }}'
+          BRANCH_NAME='${{ steps.branch.outputs.name }}'
+
+          cat > /tmp/failure_report.md << BODYEOF
+      ## AI 自审未通过
+
+      经过 3 轮自动修复后，代码审查仍未通过。需要人类开发者介入处理。
+
+      ### 审查摘要
+
+      ${SUMMARY}
+
+      ### 分支
+
+      \`${BRANCH_NAME}\` 分支上的代码保留，可手动检查。
+
+      ---
+      🤖 Generated with [Claude Code](https://claude.com/claude-code)
+      BODYEOF
+
+          gh issue comment "$ISSUE_NUMBER" --body-file /tmp/failure_report.md
+          gh issue edit "$ISSUE_NUMBER" --add-label "needs-human"

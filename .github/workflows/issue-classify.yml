@@ -1,0 +1,102 @@
+name: Issue Classification
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Classify issue
+        id: classify
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set -e
+
+          # Build prompt: rules file + issue content
+          RULES=$(cat .github/ai-workflows/classify.md)
+
+          cat > /tmp/classify_prompt.md << 'PROMPTEOF'
+          你是一个 Issue 分类助手。请严格按照以下规则对 issue 进行分类，输出 JSON。
+          PROMPTEOF
+
+          echo "" >> /tmp/classify_prompt.md
+          echo "$RULES" >> /tmp/classify_prompt.md
+          echo "" >> /tmp/classify_prompt.md
+          echo "---" >> /tmp/classify_prompt.md
+          echo "" >> /tmp/classify_prompt.md
+          echo "现在请对以下 issue 进行分类：" >> /tmp/classify_prompt.md
+          echo "" >> /tmp/classify_prompt.md
+          echo "Issue 标题：${ISSUE_TITLE}" >> /tmp/classify_prompt.md
+          echo "" >> /tmp/classify_prompt.md
+          echo "Issue 内容：" >> /tmp/classify_prompt.md
+          echo "${ISSUE_BODY}" >> /tmp/classify_prompt.md
+
+          # Call Claude for classification
+          RESULT=$(claude -p "$(cat /tmp/classify_prompt.md)" --output-format json 2>&1)
+          echo "Classification result: ${RESULT}"
+
+          # Parse JSON result with fallbacks
+          CATEGORY=$(echo "${RESULT}" | jq -r '.category // "invalid"')
+          REASON=$(echo "${RESULT}" | jq -r '.reason // "Unable to parse classification"')
+          REPLY=$(echo "${RESULT}" | jq -r '.reply // "Thank you for submitting this issue."')
+
+          echo "category=${CATEGORY}" >> "$GITHUB_OUTPUT"
+          echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
+
+          # Save reply to file to avoid shell quoting issues
+          echo "${REPLY}" > /tmp/reply.md
+          echo "reply_file=/tmp/reply.md" >> "$GITHUB_OUTPUT"
+
+      - name: Handle invalid
+        if: steps.classify.outputs.category == 'invalid'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit '${{ github.event.issue.number }}' --add-label "invalid"
+          gh issue comment '${{ github.event.issue.number }}' --body-file /tmp/reply.md
+          gh issue close '${{ github.event.issue.number }}'
+
+      - name: Handle needs-info
+        if: steps.classify.outputs.category == 'needs-info'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit '${{ github.event.issue.number }}' --add-label "needs-info"
+          gh issue comment '${{ github.event.issue.number }}' --body-file /tmp/reply.md
+
+      - name: Handle feat
+        if: steps.classify.outputs.category == 'feat'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit '${{ github.event.issue.number }}' --add-label "feat"
+          gh issue comment '${{ github.event.issue.number }}' --body-file /tmp/reply.md
+
+      - name: Handle bug
+        if: steps.classify.outputs.category == 'bug'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit '${{ github.event.issue.number }}' --add-label "bug"
+          gh issue comment '${{ github.event.issue.number }}' --body-file /tmp/reply.md
