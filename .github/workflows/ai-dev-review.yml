@@ -133,18 +133,16 @@ jobs:
             echo "" >> /tmp/review_prompt.md
             echo "$REVIEW_RULES" >> /tmp/review_prompt.md
             echo "" >> /tmp/review_prompt.md
-            cat >> /tmp/review_prompt.md << DETAILSEOF
-
-            关联 Issue：#${ISSUE_NUMBER} — ${ISSUE_TITLE}
-            当前审查轮次：${i}/${MAX_RETRIES}
-
-            代码 Diff：
-            \`\`\`diff
-            ${DIFF}
-            \`\`\`
-
-            请审查上述变更，输出 JSON。记住判断标准：critical ≥1 或 major ≥3 即为不通过。
-            DETAILSEOF
+            echo "" >> /tmp/review_prompt.md
+            echo "关联 Issue：#${ISSUE_NUMBER} — ${ISSUE_TITLE}" >> /tmp/review_prompt.md
+            echo "当前审查轮次：${i}/${MAX_RETRIES}" >> /tmp/review_prompt.md
+            echo "" >> /tmp/review_prompt.md
+            echo '代码 Diff：' >> /tmp/review_prompt.md
+            echo '```diff' >> /tmp/review_prompt.md
+            echo "${DIFF}" >> /tmp/review_prompt.md
+            echo '```' >> /tmp/review_prompt.md
+            echo "" >> /tmp/review_prompt.md
+            echo '请审查上述变更，输出 JSON。记住判断标准：critical ≥1 或 major ≥3 即为不通过。' >> /tmp/review_prompt.md
 
             # Run review
             REVIEW_RAW=$(claude -p "$(cat /tmp/review_prompt.md)" --output-format json) || {
