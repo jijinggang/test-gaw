@@ -152,10 +152,21 @@ jobs:
             DETAILSEOF
 
             # Run review
-            REVIEW=$(claude -p "$(cat /tmp/review_prompt.md)" --output-format json) || {
+            REVIEW_RAW=$(claude -p "$(cat /tmp/review_prompt.md)" --output-format json) || {
               echo "Review command failed, treating as not passed"
               REVIEW='{"passed":false,"summary":"Review command failed","issues":[{"severity":"critical","file":"unknown","description":"Claude review command failed","suggestion":"Check CI logs"}]}'
             }
+
+            if [ -z "$REVIEW" ]; then
+              echo "Review raw JSON:"
+              echo "$REVIEW_RAW" | jq '.' 2>/dev/null || echo "$REVIEW_RAW"
+
+              # Extract actual response from JSON envelope
+              INNER=$(echo "$REVIEW_RAW" | jq -r '.result')
+              # Strip markdown code fences to get pure JSON
+              CLEAN=$(echo "$INNER" | sed 's/```json//g' | sed 's/```//g')
+              REVIEW="$CLEAN"
+            fi
 
             echo "Review JSON:"
             echo "$REVIEW" | jq '.' 2>/dev/null || echo "$REVIEW"

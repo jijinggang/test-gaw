@@ -53,14 +53,20 @@ jobs:
           echo "Issue 内容：" >> /tmp/classify_prompt.md
           echo "${ISSUE_BODY}" >> /tmp/classify_prompt.md
 
-          # Call Claude for classification (pipe prompt via stdin)
+          # Call Claude for classification
           RESULT=$(claude -p "$(cat /tmp/classify_prompt.md)" --output-format json)
-          echo "Classification result: ${RESULT}"
+          echo "Raw result: ${RESULT}"
+
+          # Extract actual response from JSON envelope (result field contains markdown code block)
+          INNER=$(echo "${RESULT}" | jq -r '.result')
+          # Strip markdown code fences to get pure JSON
+          CLEAN=$(echo "${INNER}" | sed 's/```json//g' | sed 's/```//g')
+          echo "Cleaned JSON: ${CLEAN}"
 
           # Parse JSON result with fallbacks
-          CATEGORY=$(echo "${RESULT}" | jq -r '.category // "invalid"')
-          REASON=$(echo "${RESULT}" | jq -r '.reason // "Unable to parse classification"')
-          REPLY=$(echo "${RESULT}" | jq -r '.reply // "Thank you for submitting this issue."')
+          CATEGORY=$(echo "${CLEAN}" | jq -r '.category // "invalid"')
+          REASON=$(echo "${CLEAN}" | jq -r '.reason // "Unable to parse classification"')
+          REPLY=$(echo "${CLEAN}" | jq -r '.reply // "Thank you for submitting this issue."')
 
           echo "category=${CATEGORY}" >> "$GITHUB_OUTPUT"
           echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
